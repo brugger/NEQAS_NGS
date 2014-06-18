@@ -16,19 +16,20 @@ my $vcf_out = Vcf->new( version=>"4.1");
 
 $vcf_out->add_header_line({key=>'INFO', ID=>'AC',Number=>-1,Type=>'Integer',Description=>'Allele count in genotypes'});
 $vcf_out->add_header_line({key=>'FORMAT', ID=>'GT',Number=>-1,Type=>'String',Description=>'Genotypes'});
+$vcf_out->add_header_line({key=>'FORMAT', ID=>'GQ',Number=>-1,Type=>'Integer',Description=>'Genotype quality'});
 $vcf_out->add_header_line({key=>'INFO', ID=>'FQ',Number=>-1,Type=>'Float',Description=>'Allele frequency'});
-$vcf_out->add_columns('test');
+$vcf_out->add_columns('AFFY');
 
 print $vcf_out->format_header();
 
-my $exit_counter = 200;
+my $exit_counter = 1000;
 
 my $infile = shift;
 open(my $in, $infile) || die "Either could not open infile '$infile': $!\n";
 my $data = 0;
 while(<$in>) {
 
-  last if ( !$exit_counter--);
+#  last if ( !$exit_counter--);
   
   if ( ! $data ) {
     $data = 1 if ( /\[data\]/i);
@@ -50,44 +51,40 @@ while(<$in>) {
 
 #  my $ref = ref_base("$chr:$pos-$pos");
 
-  my ( $ref, $ALT, $minus_strand ) = dbSNP_info( "$chr:$pos-$pos" );
+  my ( $ref, $alt, $minus_strand ) = dbSNP_info( "$chr:$pos-$pos" );
   if ( ! $ref ) {
     print STDERR "Uknown region $chr:$pos-$pos\n";
     next;
   }
 
+  next if ( length( $ref ) > 1 || length( $alt) > 1 );
 
-  if ( $minus_strand ) {
-    $allele1 = revDNA( $allele1);
-    $allele2 = revDNA( $allele2);
-  }
-  print "$ref $ALT == $allele1 $allele2 $minus_strand $chr:$pos\n";
-  next;
-
-  my $alt = "";
-  my $AC = 1;
-  my $GT = "0/0";
   if ( $allele1 eq $allele2 && $allele1 eq $ref ) {
-    $alt = $ref;
     next;
   }
+
+  my ($rev_ref, $rev_alt) = ( revDNA($ref), revDNA($alt));
+
+  my @line;
+
+  if ( ($allele1 eq $ref && $allele2 eq $alt) ||
+       ($allele2 eq $ref && $allele1 eq $alt) ||
+       ($allele1 eq $rev_ref && $allele2 eq $rev_alt) ||
+       ($allele2 eq $rev_ref && $allele1 eq $rev_alt)) {
+    my $AC = 1;
+    my $GT = "0/1";
+    @line = ["chr$chr", $pos, ".", $ref, $alt, $score, "PASS", "AC=$AC;FQ=$freq", "GT:GQ", "$GT:1000"];
+  }
   elsif ( $allele1 eq $allele2 ) {
-    $alt = $allele1;
-    $AC = 2;
-    $GT = "1/1";
+    my $AC = 2;
+    my $GT = "1/1";
+    @line = ["chr$chr", $pos, ".", $ref, $alt, $score, "PASS", "AC=$AC;FQ=$freq", "GT:GQ", "$GT:1000"];
   }
   else {
-    $AC = 1;
-    $GT = "0/1";
-    if ( $allele1 ne $ref ) {
-      $alt = $allele1;
-    }
-    else {
-      $alt = $allele2;
-    }
+    print "$ref $alt -- $allele1 $allele2 \n";
+    next;
   }
 
-  my @line = [$chr, $pos, ".", $ref, $alt, $score, "PASS", "AC=$AC;FQ=$freq", "GT", $GT];
 
   print $vcf_out->format_line(@line);
 
